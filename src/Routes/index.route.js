@@ -2,61 +2,149 @@ import express from "express";
 import connection from "../db/connectDB.js";
 import authGuard from "../middleware/auth.middleware.js";
 import { createToken, hashCompare, hashValue } from "../utils/auth.js";
+import { queryAsync, ROLES } from "../constants/common.constants.js";
+import adminGuard from "../middleware/admin.middleware.js";
 
-const route = express.Router()
+const route = express.Router();
 
-route.post("/login", (req, res) => {
+route.post("/login", async (req, res) => {
   try {
     const { email, password } = req.body;
 
-
-    const query = "select * from user where email = ?"
-    connection.query(query,email,async (error, result) => {
-      if (error) {
-        return res.status(400).send({Error: error})
-      }
-
-      
-      const user = await result[0]
-      if (await hashCompare(password,user.password)) {
-        user.password = null
-        const token =await createToken(user)
-        return res.status(200).send({user,token})
-      }
-      return res.status(400).send({Error:"invalid password"})
-    })
-  } catch (error) {
-    res.status(500).send({Error:"Internal server error"})
-  }
-
-
- 
-})
-
-route.post("/", async(req, res) => {
-  const { fullName, email, dob, password } = req.body;
-
-  const existEmail = "select * from user where email = ?"
-  connection.query(existEmail, async(error, result) => {
-    if (error) {
-      const hashPassword =await hashValue(password)
-      console.log(hashPassword)
-      const query = "insert into user (fullName,email,dob,password) values (?,?,?,?)"
-      connection.query(query, [fullName, email, dob, hashPassword], (error, result) => {
-        if (error) {
-          console.log("error fetching users")
-          return res.status(400).send({error: error})
-        }
-        return res.status(200).send({result})
-      })
-      return
+    const selectQuery = "select * from data where email = ?";
+    const getData = await queryAsync(selectQuery, [email]);
+    if (getData.length === 0) {
+      return res.status(400).send({ Error: "invalid Email" });
     }
-    return res.status(400).send({Error:"email already exist"})
-    
-  })
+    const user = await getData[0];
+    if (await hashCompare(password, user.password)) {
+      user.password = null;
+      const token = await createToken(user);
+      return res.status(200).send({id:user.id, role: user.role, token });
+    }
+    return res.status(400).send({ Error: "invalid password" });
+  } catch (error) {
+    res.status(500).send({ Error: error || "Internal server error" });
+  }
+});
 
-  
-})
+route.post("/create", authGuard, adminGuard, async (req, res) => {
+  try {
+    const {
+      firstName,
+      lastName,
+      email,
+      password,
+      mobile,
+      age,
+      department,
+      role,
+      salary,
+    } = req.body;
 
+    const existEmail = "select * from data where email = ?";
+    const existEmailData = await queryAsync(existEmail, [email]);
+    console.log(existEmailData.length);
+    if (existEmailData.length > 0) {
+      return res.status(400).send({ Error: "email already exist" });
+    }
 
-export default route
+    const hashPassword = await hashValue(password);
+    const insertQuery =
+      "insert into data (firstName,lastName,email,password,mobile,age,department,role,salary ) values (?,?,?,?,?,?,?,?,?)";
+    const result = await queryAsync(insertQuery, [
+      firstName,
+      lastName,
+      email,
+      hashPassword,
+      mobile,
+      age,
+      department,
+      role,
+      salary,
+    ]);
+    return res
+      .status(200)
+      .send({ message: "insert data successfully", result });
+  } catch (error) {
+    res.status(500).send({ Error: error || "Internal Server Error" });
+  }
+});
+
+route.get("/allData", authGuard, adminGuard, async (req, res) => {
+  try {
+    console.log("work");
+    const query = "select * from data";
+    const data = await queryAsync(query, []);
+    if (data.length === 0) {
+      return res.status(400).send({ Error: "data is empty" });
+    }
+    // await data.map(user=>user.password = null)
+    return res.status(200).send({ message: "data fetch successfully", data });
+  } catch (error) {
+    res.status(500).send({ Error: error || "Internal server error" });
+  }
+});
+
+route.get("/:id", authGuard, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const query = "select * from data where id = ?";
+    const data = await queryAsync(query, [id]);
+    if (data.length === 0) {
+      return res.status(400).send({ Error: "data not found" });
+    }
+    data[0].password = null;
+    res.status(200).send({ message: "data fetch successfully", data });
+  } catch (error) {
+    res.status(500).send({ Error: error || "Internal server error" });
+  }
+});
+
+route.put("/:id", authGuard, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const {
+      firstName,
+      lastName,
+      email,
+      password,
+      mobile,
+      age,
+      department,
+      role,
+      salary,
+    } = req.body;
+    const hashPassword = await hashValue(password);
+    const query =
+      "update data set firstName = ?,lastName = ?,email = ?,password = ?,mobile = ?,age = ?,department = ?,role = ?,salary = ? where id = ? ";
+    const updateData = await queryAsync(query, [
+      firstName,
+      lastName,
+      email,
+      hashPassword,
+      mobile,
+      age,
+      department,
+      role,
+      salary,
+      id,
+    ]);
+    res.status(200).send({ message: "update success", updateData });
+  } catch (error) {
+    res.status(500).send({ Error: error || "Internal server error" });
+  }
+});
+
+route.delete("/:id", authGuard, adminGuard, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const query = "delete from data where id =?";
+    queryAsync(query, [id]);
+    res.status(200).send("delete success");
+  } catch (error) {
+    res.status(500).send({ Error: error || "Internal server error" });
+  }
+});
+
+export default route;
